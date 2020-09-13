@@ -1,0 +1,240 @@
+---
+title: "Exercise Prediction Model"
+author: "Felipe Frazatto"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+# Introduction
+
+This project aims at building and validating a machine learning model using 
+random forest as its method. The objective is to predict how a series of 
+exercises were performed, classifying them as "A", "B", "C", "D" or "E". 
+
+The data set comes a Puc Rio, Brazil, study, which is available at [Groupware](http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har).
+The data is composed of a series of accelerometers measurements positioned on
+different body positions.
+
+The designed random forest model had an accuracy of 98% and predicted the
+following sequence for the test set quiz: 
+
+B A C A A E D B A A B C B A E E A B B B
+
+# Data Processing
+
+## Setup
+
+Load necessary libraries
+
+```{r echo=TRUE}
+
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(rpart)
+library(randomForest)
+
+```
+
+
+Load data from provided links.
+
+
+```{r echo=TRUE, cache=TRUE}
+
+#Training and Test Data urls
+urlTrain <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+urlTest  <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+#Download
+training_raw <- read.csv(urlTrain)
+testing_raw <- read.csv(urlTest)
+
+#Backup
+training <- training_raw
+testing <- testing_raw
+
+```
+
+
+Set seed for Reproducibility.
+
+
+```{r echo=TRUE}
+
+set.seed(1234)
+
+```
+
+
+
+## Cleaning
+
+Explore data.
+
+
+```{r echo=TRUE}
+
+str(training)
+
+```
+
+First 7 columns are identification and time variables, which will not be 
+necessary for the ML model, so they can be dropped.
+
+```{r echo=TRUE, cache=TRUE}
+
+drop1 <- c(1:7)
+
+cTraining <- select(training, -drop1)
+
+```
+Search and remove any case of near zero variance, as these kind of variables 
+do not significantly impact the prediction model.
+
+```{r echo=TRUE, cache=TRUE}
+
+drop2 <- nearZeroVar(cTraining)
+
+cTraining <- cTraining[, -drop2]
+
+```
+
+
+Before looking for complete cases, check for columns with high number of NAs, 
+this could potentially exclude too many observations. Look for the columns with 
+more than 50% of its values as NAs. By taking the mean of each column with the 
+function is.na returns the percentage of missing values.
+
+
+```{r echo=TRUE}
+
+#Filter threshold
+fth_na <- 0.5
+
+#Calculate proportion of NAs
+drop3 <- apply(cTraining, 2, function(x) {mean(is.na(x))})
+
+#Filter
+cTraining <- cTraining[, drop3 < fth_na]
+
+```
+
+
+Get observations only with complete cases, i.e. no missing values (NA) in any
+column.
+
+
+```{r echo=TRUE}
+
+drop4 <- complete.cases(cTraining)
+
+cTraining <- cTraining[drop4, ]
+
+```
+
+
+Finally, create training and testing data sets. Partition **training** data set 
+into two: trainingSet (80%) and testingSet (20%) with respect to **classe** 
+column (outcome).
+
+```{r echo=TRUE}
+
+#Data partiton
+inTrain  <- createDataPartition(cTraining$classe, p = 0.8, list = FALSE)
+
+trainingSet <- cTraining[inTrain, ]
+testingSet  <- cTraining[-inTrain, ]
+
+```
+
+
+## Model
+
+### Choosing Variables
+
+Calculate correlations between variables, excluding **classe**, and get 
+variables with high correlation, *i.e.* above 75%.
+
+```{r echo=TRUE}
+
+#Filter Threshold
+fth_cr <- 0.75
+
+cValue <- cor(trainingSet[, -53])
+
+c_high <- findCorrelation(cValue, cutoff = fth_cr)
+
+cnames <- c(names(trainingSet[,c_high]), "classe")
+
+fTrain <- select(trainingSet, as.factor(cnames))
+
+```
+
+
+### Model Building
+
+This project proposes 2 models* for classification they are: Random Forest 
+("rf") and Linear Discriminant Analysis. Both are trained with with a 10-fold 
+cross validation.
+
+
+```{r echo=TRUE, cache=TRUE}
+
+set.seed(1234)
+
+#Random Forest
+rfModel <- train(classe ~ ., data = fTrain, method = "rf", number = 10)
+rfPredict <- predict(rfModel, testingSet)
+rfAcc <- confusionMatrix(rfPredict, as.factor(testingSet$classe))$overall[1]
+
+
+#Linear Discriminant Analysis 
+ldaModel <- train(classe ~ ., data = fTrain, method = "lda", number = 10)
+ldaPredict <- predict(ldaModel, testingSet)
+ldaAcc <- confusionMatrix(ldaPredict, as.factor(testingSet$classe))$overall[1]
+
+
+```
+
+
+\* A priori, this project's intent was to test 4 models: Random Forest("rf"), 
+Stochastic Gradient Boosting, Linear Discriminant Analysis ("lda") and a staked 
+model with all previous 3 as regressors and using random forest as method,
+compare all 4 models and use the best one for prediction. However, my computer 
+did not have the processing capabilities to execute it, only managing *rf* and 
+*lda*. 
+
+
+# Results
+
+As noted before, the computation behind machine learning can be very demanding
+depending on the number of observations and regressors, one way to reduce the 
+high computational power needed to train the model is to use Principal 
+Components Analysis (PCA) to reduce the regressors to only a few, highly 
+impactful, components.
+
+Between the two methods, random forest and Linear Discriminant Analysis, the 
+first showed a higher accuracy (`r rfAcc`) than the later (`r ldaAcc`), so
+random forest is the best method for this assignment.
+
+
+```{r echo=TRUE}
+
+res <- predict(rfModel, newdata = testing)
+
+```
+
+# Conclusion
+
+After cleaning the data and reducing the number of variables from 160 to 53, an
+correlation analysis was done, reducing the regressors to 13. A Principal 
+Components Analysis could be used to further reduce it.
+
+Training and comparing the two methods, Random Forest and Linear Discriminant,
+Analysis, the first had a better accuracy (`r rfAcc`), so been chosen to predict 
+the required assignment observation, resulting in the following sequence: 
+
+`r res`
